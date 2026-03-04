@@ -51,7 +51,7 @@ jobs:
       - 
         name: Set Up QEMU
         if: env.build_status == 'success'
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - 
         name: Set Up Buildx
