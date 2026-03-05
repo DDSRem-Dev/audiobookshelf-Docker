@@ -56,7 +56,7 @@ jobs:
       - 
         name: Set Up Buildx
         if: env.build_status == 'success'
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
         
       - 
         name: Login DockerHub
