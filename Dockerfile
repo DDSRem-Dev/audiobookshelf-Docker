@@ -52,6 +52,7 @@ ARG NUSQLITE3_PATH
 
 RUN set -ex && \
     apk add --no-cache --update \
+    curl \
     tzdata \
     ffmpeg \
     bash \
