@@ -2,19 +2,27 @@
 ARG NUSQLITE3_DIR="/usr/local/lib/nusqlite3"
 ARG NUSQLITE3_PATH="${NUSQLITE3_DIR}/libnusqlite3.so"
 
-FROM node:20-alpine AS prepare
+FROM node:24-alpine AS prepare
 ARG AUDIOBOOKSHELF_VERSION
 RUN set -ex && apk add git jq curl
 RUN set -ex && \
     git clone -b ${AUDIOBOOKSHELF_VERSION} https://github.com/advplyr/audiobookshelf.git /prepare
 
-FROM node:20-alpine AS build-client
+FROM node:24-alpine AS build-client
 WORKDIR /client
 COPY --from=prepare /prepare/client /client
 RUN set -ex && npm ci && npm cache clean --force
 RUN set -ex && npm run generate
 
-FROM node:20-alpine AS build-server
+# Compile on the builder CPU to avoid QEMU SIGILL from tsc on arm64.
+FROM --platform=$BUILDPLATFORM node:24-alpine AS compile-server
+
+WORKDIR /server
+COPY --from=prepare /prepare/index.js /prepare/package* /prepare/tsconfig.server.json /server/
+COPY --from=prepare /prepare/server /server/server
+RUN npm ci --include=dev --ignore-scripts && npm run build:server
+
+FROM node:24-alpine AS build-server
 
 ARG NUSQLITE3_DIR
 ARG TARGETPLATFORM
@@ -32,6 +40,7 @@ WORKDIR /server
 COPY --from=prepare /prepare/index.js /server
 COPY --from=prepare /prepare/package* /server
 COPY --from=prepare /prepare/server /server/server
+COPY --from=compile-server /server/dist-server /server/dist-server
 
 RUN case "$TARGETPLATFORM" in \
     "linux/amd64") \
@@ -43,9 +52,9 @@ RUN case "$TARGETPLATFORM" in \
     unzip /tmp/library.zip -d $NUSQLITE3_DIR && \
     rm /tmp/library.zip
 
-RUN npm ci --only=production
+RUN npm ci --omit=dev
 
-FROM node:20-alpine
+FROM node:24-alpine
 
 ARG NUSQLITE3_DIR
 ARG NUSQLITE3_PATH
@@ -64,9 +73,11 @@ RUN set -ex && \
     usermod --shell /bin/bash node && \
     rm -rf /var/cache/apk/*
 
+WORKDIR /app
+
 COPY --from=build-client /client/dist /app/client/dist
 COPY --from=build-server /server /app
-COPY --from=build-server /usr/local/lib/nusqlite3 /usr/local/lib/nusqlite3
+COPY --from=build-server ${NUSQLITE3_PATH} ${NUSQLITE3_PATH}
 
 ENV PORT=80 \
     CONFIG_PATH="/config" \
@@ -80,6 +91,6 @@ COPY --chmod=755 entrypoint.sh /entrypoint.sh
 
 ENTRYPOINT [ "/entrypoint.sh" ]
 
-CMD ["node", "index.js"]
+CMD ["node", "dist-server/index.js"]
 
 EXPOSE 80
